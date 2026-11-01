@@ -1,0 +1,165 @@
+# ============================================================
+# PN-CLT Configuration File
+# Prosody-Normalized Cross-Lingual Transfer
+# ============================================================
+# All important hyperparameters and paths live here.
+# Edit this file instead of touching source code.
+# ============================================================
+
+# --- Reproducibility ---
+seed: 42
+
+# --- Audio Preprocessing ---
+audio:
+  sample_rate: 16000          # Hz — all audio resampled to this
+  duration: 3.0               # seconds — fixed clip length (pad/truncate)
+  mono: true                  # always convert to mono
+
+# --- Feature Extraction ---
+features:
+  n_mels: 128                 # Mel filter banks (Log-Mel / MFSC)
+  n_fft: 2048                 # FFT window size
+  hop_length: 512             # hop between frames
+  fmax: 8000                  # max frequency for Mel filters (Hz)
+  fmin: 0                     # min frequency for Mel filters (Hz)
+  use_log_mel: true           # if true → log(Mel), i.e. MFSC equivalent
+
+# --- Prosodic Features ---
+prosody:
+  f0_min: 60                  # Hz — min F0 search range
+  f0_max: 500                 # Hz — max F0 search range
+  frame_length: 0.025         # seconds — analysis frame length
+  hop_length_s: 0.010         # seconds — analysis frame hop
+  n_prosodic_features: 12     # dimensionality of prosodic vector
+  # Features extracted (in order):
+  # [0]  pitch_mean      — mean F0 (voiced frames only)
+  # [1]  pitch_std       — std of F0
+  # [2]  pitch_range     — max-min F0
+  # [3]  voiced_fraction — fraction of voiced frames
+  # [4]  energy_mean     — mean RMS energy
+  # [5]  energy_std      — std of RMS energy
+  # [6]  energy_max      — max RMS energy
+  # [7]  zcr_mean        — mean zero-crossing rate (speaking rate proxy)
+  # [8]  zcr_std         — std of zero-crossing rate
+  # [9]  silence_ratio   — fraction of near-silence frames
+  # [10] pitch_slope     — linear trend of pitch (intonation)
+  # [11] energy_slope    — linear trend of energy (prominence)
+
+# --- Prosodic Normalization ---
+normalization:
+  method: "zscore"            # "zscore" | "minmax" | "robust"
+  epsilon: 1.0e-8             # numerical stability (avoid div-by-zero)
+  min_samples_warning: 30     # warn if calibration set smaller than this
+
+# --- Emotion Classes ---
+emotions:
+  # TESS uses these 7 labels (folder names map to these)
+  classes:
+    - "neutral"
+    - "fear"
+    - "angry"
+    - "disgust"
+    - "sad"
+    - "surprise"
+    - "happy"
+  n_classes: 7
+
+  # Tamil label remapping (set to null if Tamil uses same labels)
+  # Example: if Tamil file has "happiness" → map to "happy"
+  tamil_label_map:
+    happiness: happy
+    sadness: sad
+    anger: angry
+    fear: fear
+    disgust: disgust
+    surprise: surprise
+    neutral: neutral
+
+# --- Model Architecture ---
+model:
+  cnn_filters_1: 128
+  cnn_filters_2: 256
+  cnn_kernel_1: 5
+  cnn_kernel_2: 3
+  pool_size: 2
+  dropout_cnn: 0.3
+  lstm_units: 128
+  dense_units_1: 128
+  dense_units_2: 64
+  dropout_dense_1: 0.4
+  dropout_dense_2: 0.3
+
+# --- English Training ---
+training:
+  batch_size: 32
+  epochs: 100
+  learning_rate: 0.001
+  optimizer: "adam"
+  loss: "sparse_categorical_crossentropy"
+  early_stopping_patience: 15
+  lr_reduce_patience: 7
+  lr_reduce_factor: 0.5
+  min_lr: 1.0e-6
+  val_split: 0.15
+  test_split: 0.15
+
+# --- Tamil Fine-Tuning ---
+fine_tuning:
+  phase1_epochs: 30           # head-only training
+  phase1_lr: 0.0001
+  phase1_patience: 10
+  phase2_epochs: 40           # selective unfreeze
+  phase2_lr: 0.00005
+  phase2_patience: 12
+  batch_size: 8               # very small for few-shot
+  # Layers to unfreeze in phase 2:
+  unfreeze_layers:
+    - "bidirectional"
+    - "dense"
+    - "dense_1"
+    - "dense_2"
+
+# --- Few-Shot Experiment Settings ---
+few_shot:
+  samples_per_class_list: [5, 10, 25, 50, 100]
+  n_repeats: 3                # repeat each setting N times (average results)
+
+# --- Paths ---
+paths:
+  # Dataset roots (user fills their own data here)
+  english_tess: "data/english/TESS"
+  english_savee: "data/english/SAVEE"
+  tamil_data: "data/tamil"
+
+  # Saved models
+  english_best: "models/english_best.keras"
+  english_final: "models/english_final.keras"
+  model_A: "models/tamil_modelA.keras"
+  model_B: "models/tamil_modelB.keras"
+  model_C: "models/tamil_modelC.keras"
+  model_D: "models/tamil_modelD.keras"
+
+  # Artifacts
+  label_encoder: "models/label_encoder.pkl"
+  normalizer_tamil: "models/prosodic_normalizer_tamil.pkl"
+  normalizer_english: "models/prosodic_normalizer_english.pkl"
+  preprocessing_config: "models/preprocessing_config.json"
+
+  # Results
+  results_dir: "results"
+  figures_dir: "results/figures"
+  reports_dir: "results/reports"
+
+# --- Dataset-Specific Notes ---
+# TESS:
+#   Folder structure: TESS/<speaker>/<emotion>/OAF_*.wav
+#   Speakers: OAF (older female), YAF (younger female)
+#   Emotions: angry, disgust, fear, happy, neutral, ps (surprise), sad
+#   NOTE: "ps" in TESS = "pleasantly surprised" → mapped to "surprise"
+#   Download: https://tspace.library.utoronto.ca/handle/1807/24487
+#
+# SAVEE (optional):
+#   Folder structure: SAVEE/<speaker>/<emotion_code>*.wav
+#   Emotion codes: a=anger, d=disgust, f=fear, h=happiness, n=neutral,
+#                  sa=sadness, su=surprise
+#   Download: http://kahlan.eps.surrey.ac.uk/savee/ (requires registration)
