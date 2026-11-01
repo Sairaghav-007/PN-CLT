@@ -78,19 +78,29 @@ def predict_audio(
         hop_length_s=cfg.prosody.hop_length_s,
     )
 
-    # Prosodic normalization
-    if normalizer_path is None:
-        if language.lower() == "tamil":
-            normalizer_path = Path("models/prosodic_normalizer_tamil.pkl")
-        else:
-            normalizer_path = Path("models/prosodic_normalizer_english.pkl")
+    # Prosodic normalization logic
+    # Models A & B were trained WITHOUT normalization, whereas C & D were trained WITH normalization.
+    model_name_lower = model_path.name.lower()
+    is_unnormalized_model = "modela" in model_name_lower or "modelb" in model_name_lower
 
-    if Path(normalizer_path).exists():
-        print(f"[3/4] Applying prosodic normalizer: {normalizer_path.name}")
-        normalizer = ProsodicNormalizer.load(normalizer_path)
-        pros = normalizer.transform(pros.reshape(1, -1))[0]
+    if normalizer_path is not None and str(normalizer_path).lower() in ("none", "false", "no"):
+        normalizer_path = None
+        print(f"[3/4] Skipping prosodic normalization (--normalizer none specified).")
+    elif normalizer_path is None and is_unnormalized_model:
+        print(f"[3/4] Detected unnormalized model ({model_path.name}). Skipping prosodic normalization.")
     else:
-        print(f"[3/4] Normalizer {normalizer_path} not found; proceeding without normalization.")
+        if normalizer_path is None:
+            if language.lower() == "tamil":
+                normalizer_path = Path("models/prosodic_normalizer_tamil.pkl")
+            else:
+                normalizer_path = Path("models/prosodic_normalizer_english.pkl")
+
+        if Path(normalizer_path).exists():
+            print(f"[3/4] Applying prosodic normalizer: {Path(normalizer_path).name}")
+            normalizer = ProsodicNormalizer.load(normalizer_path)
+            pros = normalizer.transform(pros.reshape(1, -1))[0]
+        else:
+            print(f"[3/4] Normalizer {normalizer_path} not found; proceeding without normalization.")
 
     # Combine
     X = append_prosody_to_spectrogram(spec, pros)
