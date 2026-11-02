@@ -35,8 +35,51 @@ SILENCE_THRESHOLD = 1e-4        # RMS threshold below which audio = silent
 
 
 # ---------------------------------------------------------------------------
+# Helper: Decode audio with FFmpeg (M4A, AAC, MP4, etc.)
+# ---------------------------------------------------------------------------
+
+def _decode_with_ffmpeg(path: Path | str, target_sr: int = DEFAULT_SR) -> Optional[np.ndarray]:
+    """
+    Decode audio file using imageio_ffmpeg or system ffmpeg to float32 mono.
+    Handles M4A, AAC, MP3, MP4, WMA, and other formats natively.
+    """
+    import subprocess
+    import shutil
+
+    ffmpeg_exe = None
+    try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_exe = shutil.which("ffmpeg")
+
+    if not ffmpeg_exe:
+        return None
+
+    cmd = [
+        ffmpeg_exe,
+        "-nostdin",
+        "-threads", "0",
+        "-i", str(path),
+        "-f", "f32le",
+        "-ac", "1",
+        "-ar", str(target_sr),
+        "-"
+    ]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if proc.returncode != 0:
+            return None
+        audio = np.frombuffer(proc.stdout, dtype=np.float32)
+        return audio
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Core: load_audio
 # ---------------------------------------------------------------------------
+
 
 def load_audio(
     path: str | Path,
@@ -86,17 +129,32 @@ def load_audio(
             "Please check the path and try again."
         )
 
-    # --- Load with librosa (handles most formats) ---
+    # --- Load with librosa or ffmpeg (seamlessly handles M4A, AAC, WAV, MP3, etc.) ---
+    audio = None
+    orig_sr = None
+
+    # Try librosa first (fast for native formats like WAV)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             audio, orig_sr = librosa.load(str(path), sr=None, mono=False)
-    except Exception as exc:
+    except Exception:
+        # If librosa fails (common on Windows for M4A/AAC), decode using ffmpeg
+        audio = _decode_with_ffmpeg(path, target_sr=sr)
+        if audio is not None and audio.size > 0:
+            orig_sr = sr
+
+    # If still None, try ffmpeg explicitly before failing
+    if audio is None:
+        audio = _decode_with_ffmpeg(path, target_sr=sr)
+        if audio is not None and audio.size > 0:
+            orig_sr = sr
+
+    if audio is None:
         raise ValueError(
             f"[preprocessing] Could not read audio file: {path}\n"
-            f"  Underlying error: {exc}\n"
-            "  Supported formats: WAV, MP3, FLAC, OGG, AIFF."
-        ) from exc
+            "  Supported formats: WAV, M4A, MP3, AAC, FLAC, OGG, AIFF."
+        )
 
     # --- Shape check ---
     if audio is None or audio.size == 0:
